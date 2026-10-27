@@ -1,0 +1,87 @@
+services:
+  aggregator:
+    build:
+      context: .
+    environment:
+      CLA_DATA_DIR: /data
+      CLA_HTTP_ADDR: :8080
+      CLA_QUEUE_SEGMENT_SIZE: 1048576
+      CLA_DASHBOARD_ORIGIN: http://localhost:3000
+
+      # v2 advanced stack
+      CLA_HOT_RETENTION: 168h # 7 days, then tsdb/logsdb segments archive to cold storage
+
+      # RBAC is off by default so the out-of-the-box dashboard/API stay
+      # open; set both to enable auth on /v2/* routes.
+      CLA_RBAC_ENABLED: "false"
+      # CLA_RBAC_SECRET: change-me-to-a-long-random-value
+
+      # Rule-based alerting (rules/silences/deployments) now runs in the
+      # standalone alerting-service container; /v2/alerts/* and
+      # /v2/deployments proxy to it over the docker network.
+      ALERTING_SERVICE_URL: http://alerting-service:8083
+
+      # Optional S3-compatible cold storage - unset means archival goes to
+      # a local filesystem Blobstore under CLA_DATA_DIR/cold instead.
+      # CLA_S3_ENDPOINT: https://s3.us-east-1.amazonaws.com
+      # CLA_S3_BUCKET: my-log-aggregator-archive
+      # CLA_S3_ACCESS_KEY: ...
+      # CLA_S3_SECRET_KEY: ...
+      # CLA_S3_REGION: us-east-1
+    volumes:
+      - cla-data:/data
+    ports:
+      - "8080:8080" # HTTP API (v1 + v2), including internal
+                     # /internal/{logs,metrics,traces} that ingest-gateway
+                     # forwards OTLP data to
+    depends_on:
+      - alerting-service
+
+  ingest-gateway:
+    build:
+      context: .
+    entrypoint: ["ingest-gateway"]
+    environment:
+      CLA_OTLP_GRPC_ADDR: :4317
+      CLA_OTLP_HTTP_ADDR: :4318
+      # Where to forward normalized OTLP logs/metrics/traces - the
+      # aggregator's internal, unauthenticated service-to-service endpoints
+      # (POST /internal/logs, /internal/metrics, /internal/traces).
+      AGGREGATOR_URL: http://aggregator:8080
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP/HTTP
+    depends_on:
+      - aggregator
+
+  alerting-service:
+    build:
+      context: .
+    entrypoint: ["alerting-service"]
+    environment:
+      ALERTING_SERVICE_ADDR: :8083
+      # Where to query TSDB data for rule evaluation - the aggregator's
+      # internal, unauthenticated service-to-service endpoint.
+      AGGREGATOR_URL: http://aggregator:8080
+
+      # Optional alert routing - unset means alerts just log locally.
+      # CLA_SLACK_WEBHOOK_URL: https://hooks.slack.com/services/...
+      # CLA_PAGERDUTY_ROUTING_KEY: ...
+    ports:
+      - "8083:8083" # alerting-service HTTP API
+
+  dashboard:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./web/dashboard:/app
+    command: sh -c "npm install && npm run dev"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - aggregator
+
+volumes:
+  cla-data:

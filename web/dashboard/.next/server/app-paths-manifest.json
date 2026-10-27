@@ -1,0 +1,12 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/logs/page": "app/logs/page.js",
+  "/aiops/page": "app/aiops/page.js",
+  "/search/page": "app/search/page.js",
+  "/archive/page": "app/archive/page.js",
+  "/traces/page": "app/traces/page.js",
+  "/metrics/page": "app/metrics/page.js",
+  "/alerts/page": "app/alerts/page.js",
+  "/page": "app/page.js",
+  "/profiling/page": "app/profiling/page.js"
+}
